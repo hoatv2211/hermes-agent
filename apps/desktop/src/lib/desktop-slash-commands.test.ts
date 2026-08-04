@@ -111,7 +111,8 @@ describe('desktop slash command curation', () => {
   it('routes only stateless session commands through dedicated gateway RPCs', () => {
     const expected = {
       '/save': 'session.save',
-      '/status': 'session.status'
+      '/status': 'session.status',
+      '/usage': 'session.usage'
     } as const
 
     for (const [name, rpcName] of Object.entries(expected)) {
@@ -130,7 +131,7 @@ describe('desktop slash command curation', () => {
   })
 
   it('keeps commands with richer CLI semantics on the slash worker', () => {
-    for (const name of ['/agents', '/steer', '/stop', '/usage']) {
+    for (const name of ['/agents', '/steer', '/stop']) {
       expect(resolveDesktopCommand(name)?.surface).toEqual({ kind: 'exec' })
     }
   })
@@ -295,7 +296,7 @@ describe('desktop slash command curation', () => {
     expect(resolveDesktopCommand('/new')?.surface).toEqual({ kind: 'action', action: 'new' })
     expect(resolveDesktopCommand('/reset')?.surface).toEqual({ kind: 'action', action: 'new' })
     expect(resolveDesktopCommand('/resume')?.surface).toEqual({ kind: 'picker', picker: 'session' })
-    expect(resolveDesktopCommand('/usage')?.surface).toEqual({ kind: 'exec' })
+    expect(resolveDesktopCommand('/usage')?.surface).toMatchObject({ kind: 'rpc', rpc: 'session.usage' })
     expect(resolveDesktopCommand('/clear')?.surface).toEqual({ kind: 'unavailable', reason: 'terminal' })
     // Skill / quick commands aren't in the registry.
     expect(resolveDesktopCommand('/gif-search')).toBeNull()

@@ -338,3 +338,29 @@ test('error-shape predicates', () => {
   // A gated 401 must NOT be conflated with a missing route by the 404 predicate.
   assert.equal(isMissingHealthEndpointError(new Error(GATE_401)), false)
 })
+
+test('local anonymous 401 can fall back to /api/status for legacy runtimes', async () => {
+  const calls: string[][] = []
+
+  await waitForHermesReady('http://127.0.0.1:9000', {
+    token: 'local-token',
+    fetchPublicJson: async url => {
+      calls.push(['public', url])
+      throw new Error('401: {"detail":"Unauthorized"}')
+    },
+    fetchJson: async (url, token) => {
+      calls.push(['token', url, token ?? ''])
+
+      return { version: 'legacy-local' }
+    },
+    allowAnonymousAuthFallback: true,
+    sleep: async () => {},
+    timeoutMs: 100,
+    pollMs: 1
+  })
+
+  assert.deepEqual(calls, [
+    ['public', 'http://127.0.0.1:9000/api/health'],
+    ['token', 'http://127.0.0.1:9000/api/status', 'local-token']
+  ])
+})

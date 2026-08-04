@@ -224,11 +224,10 @@ const DESKTOP_COMMAND_SPECS: readonly DesktopCommandSpec[] = [
   // route to it directly via `rpc(...)` — bypassing slash.exec avoids the
   // slash-worker pipe timeout and the "not a quick/plugin/skill command"
   // fallback noise for commands the dispatcher doesn't handle inline.
-  // These commands have gateway RPCs, but their established desktop behavior
+  // Some commands have gateway RPCs, but their established desktop behavior
   // carries richer CLI semantics: /agents includes delegations, /stop cancels
-  // them, /steer falls back to a next-turn prompt, and /usage is a formatted
-  // live report. Keep them on slash.exec until their RPC contracts are fully
-  // equivalent.
+  // them, and /steer falls back to a next-turn prompt. Keep those on
+  // slash.exec until their RPC contracts are fully equivalent.
   {
     name: '/approvals',
     description: 'Show or set approval mode [manual|smart|off]',
@@ -317,7 +316,11 @@ const DESKTOP_COMMAND_SPECS: readonly DesktopCommandSpec[] = [
     argumentMode: 'options'
   },
   { name: '/undo', description: 'Remove the last user/assistant exchange', surface: exec() },
-  { name: '/usage', description: 'Show token usage for this session', surface: exec() },
+  {
+    name: '/usage',
+    description: 'Show token usage for this session',
+    surface: rpc('session.usage', ctx => ({ session_id: ctx.sessionId }))
+  },
   { name: '/version', description: 'Show Hermes Agent version', surface: exec() },
 
   // No desktop surface, but carry an alias (underscore spelling variants).

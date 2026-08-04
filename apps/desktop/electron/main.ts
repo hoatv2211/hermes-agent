@@ -5156,6 +5156,7 @@ async function buildReadinessHealthProbe(baseUrl, authMode, token) {
 
 async function waitForHermes(baseUrl, token, signal?, authMode?) {
   const { probeHealth, probeIsCredentialed } = await buildReadinessHealthProbe(baseUrl, authMode, token)
+  const isLocalAnonymousProbe = !authMode && !probeIsCredentialed
 
   return waitForHermesReady(baseUrl, {
     token,
@@ -5163,7 +5164,8 @@ async function waitForHermes(baseUrl, token, signal?, authMode?) {
     fetchPublicJson,
     fetchJson: probeIsCredentialed ? (url, _token, options) => probeHealth(url, options) : fetchJson,
     probeHealth,
-    probeIsCredentialed
+    probeIsCredentialed,
+    allowAnonymousAuthFallback: isLocalAnonymousProbe
   })
 }
 

@@ -33,6 +33,12 @@ export interface HermesReadyOptions {
    * two very different meanings of a 401 (see `waitForHermesReady`).
    */
   probeIsCredentialed?: boolean
+  /**
+   * Local legacy runtimes can gate an unknown `/api/health` as a bare 401
+   * instead of a 404/no_cookie shape. Only enable this for anonymous local
+   * readiness probes; credentialed remote probes must still fail fast.
+   */
+  allowAnonymousAuthFallback?: boolean
 }
 
 export const REMOTE_SESSION_EXPIRED_MESSAGE =
@@ -119,6 +125,7 @@ export async function waitForHermesReady(baseUrl: string, options: HermesReadyOp
   const deadline = now() + timeoutMs
   const probeHealth = options.probeHealth ?? options.fetchPublicJson
   const probeIsCredentialed = Boolean(options.probeIsCredentialed)
+  const allowAnonymousAuthFallback = Boolean(options.allowAnonymousAuthFallback) && !probeIsCredentialed
   let lastError: unknown = null
   let useStatusFallback = false
 
@@ -152,9 +159,16 @@ export async function waitForHermesReady(baseUrl: string, options: HermesReadyOp
       // So does a gate-shaped 401 on an ANONYMOUS probe: the dashboard auth
       // gate runs ahead of the SPA catch-all, so a pre-/api/health backend
       // rejects the unknown path as unauthenticated instead of 404 and a
-      // credential-free probe can never observe the 404. Timeouts, 5xx, 429,
-      // and non-gate 401s keep polling health.
-      if (!useStatusFallback && (isMissingHealthEndpointError(error) || isGatedMissingHealthError(error))) {
+      // credential-free probe can never observe the 404. Some legacy local
+      // runtimes return only a bare 401 Unauthorized, so local boot may opt
+      // into treating anonymous auth rejection as the same legacy fallback.
+      // Timeouts, 5xx, 429, and non-opted-in 401s keep polling health.
+      if (
+        !useStatusFallback &&
+        (isMissingHealthEndpointError(error) ||
+          isGatedMissingHealthError(error) ||
+          (allowAnonymousAuthFallback && isAuthRejectionError(error)))
+      ) {
         useStatusFallback = true
 
         continue
