@@ -344,6 +344,41 @@ hermes plugins disable my-plugin             # remove from allow-list + add to d
 hermes plugins capabilities [my-plugin]      # declared vs granted capabilities
 ```
 
+### One-click install links (Desktop)
+
+Hermes Desktop registers the `hermes://` URL scheme, so a website, README, or
+chat message can link straight to a plugin install:
+
+```
+hermes://plugin/install?repo=owner/repo            # main install link
+hermes://plugin/install?repo=owner/repo&enable=1   # enable the agent plugin after install
+hermes://plugin/install?repo=owner/repo&force=1    # replace an existing install
+```
+
+Clicking one opens Hermes and shows a **confirmation dialog** — the repo id,
+a "Before you install" note, and GitHub browse + clone links — then
+shallow-clones the repo to detect what it ships (an **agent plugin** —
+backend Python, a **desktop plugin** — app UI, or both). You pick the
+components with checkboxes and confirm. Nothing is installed until you do;
+deep links never auto-install, and agent-plugin installs go through the same
+[install-time security scanning](#install-time-security-scanning) as
+`hermes plugins install`.
+
+Hybrid repos (agent + desktop halves in one repo) use one link and one
+dialog. The same modal is reachable without a link via **Settings → Plugins →
+Install from Git**. Legacy `hermes://plugin-agent/…` and
+`hermes://plugin-desktop/…` URLs route into the same dialog. In dev builds
+(`npm run dev`) the scheme is `hermes-dev://`.
+
+Websites need no SDK — a normal anchor works:
+
+```html
+<a href="hermes://plugin/install?repo=owner/repo&enable=1">Install in Hermes</a>
+```
+
+MCP servers have the equivalent link form — see
+[Add to Hermes link](/reference/mcp-config-reference#add-to-hermes-link).
+
 ### Plugin capabilities and consent
 
 Plugins can declare the privileged host surfaces they want in their
@@ -391,6 +426,7 @@ working but are **deprecated** in favor of the consent flow:
 | `llm.agent_id_override` | `llm.allow_agent_id_override` |
 | `llm.profile_override` | `llm.allow_profile_override` |
 | `llm.task_override` | `llm.allow_task_override` |
+| `gateway.platform_actions` | `allow_platform_actions` |
 
 A gate is open when *either* the capability is granted *or* the legacy key is
 set — existing configs keep working unchanged.
@@ -401,6 +437,53 @@ regular in-process Python: a malicious plugin can ignore every gate here.
 Granting a capability is a statement of trust in the plugin author — it is
 not a code audit, and Hermes has not reviewed the plugin's code. Only install
 plugins from sources you trust.
+:::
+
+### Platform actions
+
+`ctx.platform_actions` gives a plugin a minimal, capability-gated verb set for
+acting on connected chat platforms through the live gateway adapter registry —
+the sanctioned alternative to monkeypatching an adapter. **It is off by
+default**: every call re-checks the `gateway.platform_actions` capability
+(legacy key `plugins.entries.<id>.allow_platform_actions`), and an ungranted
+call returns a structured error instead of acting.
+
+v1 verbs (both `async`, both return a plain dict, and neither ever raises into
+hook dispatch):
+
+```python
+result = await ctx.platform_actions.add_reaction(
+    platform="telegram", chat_id="-100123", message_id="456", emoji="👍",
+)
+result = await ctx.platform_actions.set_thread_title(
+    platform="discord", chat_id="123", thread_id="456", title="New title",
+)
+if not result["ok"]:
+    print(result["error"], result.get("detail"))
+```
+
+Success is `{"ok": True, "action": <verb>}`. Failures are
+`{"ok": False, "error": <code>, "detail": <str>}` with stable error codes:
+`capability_not_granted`, `invalid_argument`, `gateway_unavailable`,
+`unknown_platform`, `adapter_not_registered`, `adapter_disconnected`,
+`unsupported_platform_action`, `action_failed`. Actions validate that the
+target adapter exists and is connected before acting; a disconnected or
+missing adapter degrades to a structured error, never an exception.
+
+Platforms supported in v1: Telegram and Discord. Telegram's `add_reaction`
+*sets* the bot's reaction (the Bot API replaces a previous bot reaction rather
+than stacking). Every action — allowed or denied — is written to the log with
+the plugin id, verb, platform, and outcome.
+
+:::warning Security note
+Platform actions are a **messaging-as-the-bot power**: a granted plugin can
+react and rename threads in any chat the gateway bot can reach, not just the
+chat that triggered the hook. Grant `gateway.platform_actions` only to plugins
+you trust, and prefer plugins that document exactly which actions they take.
+Raw platform SDK payload/handle access is deliberately **not** part of this
+surface — per the #64176 round-2 design correction it requires its own
+capability (`gateway.raw_events`) with a "no stability guarantee" label and a
+separate design, and has not shipped.
 :::
 
 ### Discovering community plugins
@@ -538,6 +621,36 @@ listed as warning comments in the emitted YAML, not as installable entries.
 The `skills:` list is parsed and displayed at install time but not yet
 auto-installed — install those manually for now (`hermes skills`). Wiring
 skill-hub ids into pack install is a documented follow-up seam.
+
+### Install-time security scanning
+
+Every `hermes plugins install` and `hermes plugins update` runs a static
+security scan over the plugin tree before it is activated (inspired by
+Claude Cowork's skill & plugin security scanning). The scanner reuses the
+same threat-pattern engine as the [Skills Hub guard](/user-guide/features/skills)
+— exfiltration of credential stores, reverse shells, destructive commands,
+persistence mechanisms, obfuscated execution, and prompt injection in
+documentation files — with plugin-aware exemptions: a provider plugin
+reading its **own** API key from the environment (the documented
+`requires_env` pattern) is not flagged.
+
+Three verdicts, matching Cowork's pass/warn/fail:
+
+| Verdict | Behavior |
+|---|---|
+| **safe** | Installs normally, no extra output |
+| **caution** | Findings are shown; you confirm `Install anyway? [y/N]` (or pass `--force`) |
+| **dangerous** | Blocked. `--force` does **not** override |
+
+On `hermes plugins update`, a dangerous verdict on the updated tree
+disables the plugin until you review the findings and re-enable it.
+
+Scanning is on by default; disable it in `config.yaml`:
+
+```yaml
+plugins:
+  scan_on_install: false
+```
 
 ### Interactive UI
 
